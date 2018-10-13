@@ -8,24 +8,29 @@ We also consider the design as an example of user driven development. Ideally we
 our models fluently as follows
 
 ```python
-from pryme import LinearProgram, Var, Objective
-
+from pryme import Model, RealVariable, constraint
 
 # roughly taken from
 # http://people.brunel.ac.uk/~mastjjb/jeb/or/morelp.html
-with LinearProgram() as model:
-    x = Var()
-    y = Var()
+with Model() as model:
+    x = RealVariable('x')
+    y = RealVariable('y')
 
     # bounds on variables
     x >= 45
     5 <= y <= 20
     
     # constraints
-    50*x + 24*y <= 2400
-    30*x + 33*y <= 2100
+    @constraint
+    def c1(x, y):
+        return 2400 - 50*x - 24*y
+        
+    @constraint
+    def c2(x, y):
+        return 2100 - 30*x - 33*y
     
-    objective = x + y -50
-    
+def objective(x, y):
+    return x + y - 50
+
 model.maximize(objective)
 ```

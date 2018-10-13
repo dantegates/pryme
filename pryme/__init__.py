@@ -1,5 +1,10 @@
 import numpy as np
 import scipy.optimize
+import tensorflow as tf
+
+# tf.enable_eager_execution()
+
+tfe = tf.contrib.eager # shorthand for some symbols
 
 
 _CONTEXT = []
@@ -28,7 +33,7 @@ class BaseModel(ReprMixin):
     def __init__(self):
         self.variables = []
         self.constraints = []
-        self.bounds = []
+        self.bounds = {}
 
 
     def __enter__(self):
@@ -42,8 +47,16 @@ class BaseModel(ReprMixin):
     def add_variable(self, variable):
         self.variables.append(variable)
         
-    def add_bound(self, bound):
-        self.bounds.append(bound)
+    def add_bound(self, var, bound, kind):
+        if not var.name in self.bounds:
+            self.bounds[var.name]= [None, None]
+        if kind == 'lower':
+            self.bounds[var.name][0] = bound
+        else:
+            self.bounds[var.name][1] = bound
+        
+    def add_constraint(self, constraint):
+        self.constraints.append(constraint)
 
     def minimize(self, objective):
         raise NotImplementedError
@@ -52,34 +65,37 @@ class BaseModel(ReprMixin):
         raise NotImplementedError
 
 
-class LinearProgram(BaseModel):
-    def minimize(self, objective):
+class Model(BaseModel):
+    def minimize(self, objective_fn):
         pass
 
-    def _minimize(self, objective, bounds, constraints):
-        def objective_fn(x):
-            return np.dot(objective[:-1], x) - objective[-1]
-        def objective_gradient_fn(x):
-            return objective[:-1]
+    def _minimize(self, objective_fn, bounds, constraints):
+        l_bounds, u_bounds = self._make_bounds(bounds)
+        return scipy.optimize.minimize(
+            lambda x: objective_fn(*x),
+            x0=l_bounds,
+            jac=lambda x: gradient(objective_fn)(*x),
+            bounds=scipy.optimize.Bounds(l_bounds, u_bounds),
+            constraints=self._make_constraints(constraints),
+            method='SLSQP')
+    
+    def _make_bounds(self, bounds):
+        var_names = [v.name for v in self.variables]
+        bounds = sorted(bounds.items(), key=lambda x: var_names.index(x[0]))
+        bounds = [v for k, v in bounds]
         lower_bounds, upper_bounds = zip(*bounds)
         lower_bounds = [-np.inf if x is None else x for x in lower_bounds]
         upper_bounds = [np.inf if x is None else x for x in upper_bounds]
-        bounds = scipy.optimize.Bounds(np.array(lower_bounds), np.array(upper_bounds))
-        x0 = np.array(lower_bounds)
-        constraints = [
-            dict(type='ineq', fun=lambda x: np.dot(c[:-1], x) - c[-1], jac=lambda x: c[:-1])
+        return np.array(lower_bounds), np.array(upper_bounds)
+    
+    @staticmethod
+    def _make_constraints(constraints):
+        return [
+            dict(type='ineq', fun=lambda x: c(*x), jac=lambda x: gradient(c)(*x))
             for c in constraints
         ]
-        return scipy.optimize.minimize(
-            objective_fn,
-            x0=x0,
-            jac=objective_gradient_fn,
-            bounds=bounds,
-            constraints=constraints,
-            method='SLSQP')
-        
 
-    def maximize(self, objective, bounds, constraints):
+    def maximize(self, objective):
         """Maximize the objective function.
 
         Args:
@@ -97,23 +113,11 @@ class LinearProgram(BaseModel):
                 the corresponding variable in the array and the last corresponding
                 to the right hand side of the equation.
         """
-        return self.minimize(-objective, bounds, [-c for c in constraints])
-
-
-class Bound:
-    def __new__(cls, *args, **kwargs):
-        instance = super().__new__(cls)
-        current_model = _get_current_model()
-        current_model.add_bound(instance)
-        return instance
-
-    def __init__(self, left, right, comparison):
-        self.left = left
-        self.right = right
-        self.comparison = comparison
-        
-    def __repr__(self):
-        return f'{self.left} {self.comparison} {self.right}'
+        return self._minimize(
+            lambda *args: -1 * objective(*args),
+            self.bounds,
+            self.constraints)
+#             [lambda *args: -1 * c(*args) for c in self.constraints])
 
 
 class BaseVariable:
@@ -129,28 +133,30 @@ class BaseVariable:
     def __repr__(self):
         return f'{self.__class__.__name__}({self.name!r})'
         
-    def __lt__(self, other):
-        Bound(self, other, '<')
-        return self
-    
+
     def __le__(self, other):
-        Bound(self, other, '<=')
+        current_model = _get_current_model()
+        current_model.add_bound(self, other, 'upper')
         return self
 
-    def __gt__(self, other):
-        Bound(self, other, '>')
-        return self
-    
     def __ge__(self, other):
-        Bound(self, other, '>=')
+        current_model = _get_current_model()
+        current_model.add_bound(self, other, 'lower')
         return self
-    
-    def __eq__(self, other):
-        raise NotImplementedError('not implementing this yet')
-        
-    def __ne__(self, other):
-        raise NotImplementedError('not implementing this yet')
         
         
 class RealVariable(BaseVariable):
     pass
+
+
+def gradient(f):
+    def inner(*args):
+        grad = tfe.gradients_function(f)(*args)
+        return np.array([x.numpy() for x in tfe.gradients_function(f)(*args)])
+    return inner
+    
+
+def constraint(f):
+    current_model = _get_current_model()
+    current_model.add_constraint(f)
+    return f
