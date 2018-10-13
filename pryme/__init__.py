@@ -1,4 +1,5 @@
-import numbers
+import numpy as np
+import scipy.optimize
 
 
 _CONTEXT = []
@@ -52,23 +53,50 @@ class BaseModel(ReprMixin):
 
 
 class LinearProgram(BaseModel):
-    def minimize(self, objective, bounds, constraints):
-        raise NotImplementedError
+    def minimize(self, objective):
+        pass
+
+    def _minimize(self, objective, bounds, constraints):
+        def objective_fn(x):
+            return np.dot(objective[:-1], x) - objective[-1]
+        def objective_gradient_fn(x):
+            return objective[:-1]
+        lower_bounds, upper_bounds = zip(*bounds)
+        lower_bounds = [-np.inf if x is None else x for x in lower_bounds]
+        upper_bounds = [np.inf if x is None else x for x in upper_bounds]
+        bounds = scipy.optimize.Bounds(np.array(lower_bounds), np.array(upper_bounds))
+        x0 = np.array(lower_bounds)
+        constraints = [
+            dict(type='ineq', fun=lambda x: np.dot(c, x) - rhs, jac=lambda x: c)
+            for c, rhs in constraints
+        ]
+        return scipy.optimize.minimize(
+            objective_fn,
+            x0=x0,
+            jac=objective_gradient_fn,
+            bounds=bounds,
+            constraints=constraints,
+            method='SLSQP')
+        
 
     def maximize(self, objective, bounds, constraints):
         """Maximize the objective function.
 
         Args:
-            objective (`numpy.array`): Numpy array of length `n` representing the
-                linear coefficients for the model's variables.
+            objective (`numpy.array`): Numpy array of length `n+1` representing the
+                linear coefficients for the model's variables and any constants
+                added or subtracted to the linear combination.
             bounds (`list` of `tuple`s or `None): List of length `n` of `tuple`s 
                 representing the bounds on the model's variables or None if the
-                variable is unbounded. If a `tuple` should have two items either
-                an instance of `Bound` or None. The first represents a lower
-                bound and the second represents an upper bound.
-            constraints (`list` of `numpy.array`s): Each numpy array should be
+                variable is unbounded. If a `tuple` should have two items. The
+                first is a scalar or None representing the lower bound or lack
+                thereof. The second is similar and represents the upper bound.
+
+            constraints (`list` of `tuples`.): First element in `tuple` is a 
+                `numpy.array`. Each numpy array should be
                 of length `n` and each element represents the coefficient of
-                the corresponding variable in the array.
+                the corresponding variable in the array. The second element is
+                the value of the right hand side of the equation.
         """
         return self.minimize(-objective, bounds, [-c for c in constraints])
 
