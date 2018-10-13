@@ -67,8 +67,8 @@ class LinearProgram(BaseModel):
         bounds = scipy.optimize.Bounds(np.array(lower_bounds), np.array(upper_bounds))
         x0 = np.array(lower_bounds)
         constraints = [
-            dict(type='ineq', fun=lambda x: np.dot(c, x) - rhs, jac=lambda x: c)
-            for c, rhs in constraints
+            dict(type='ineq', fun=lambda x: np.dot(c[:-1], x) - c[-1], jac=lambda x: c[:-1])
+            for c in constraints
         ]
         return scipy.optimize.minimize(
             objective_fn,
@@ -92,11 +92,10 @@ class LinearProgram(BaseModel):
                 first is a scalar or None representing the lower bound or lack
                 thereof. The second is similar and represents the upper bound.
 
-            constraints (`list` of `tuples`.): First element in `tuple` is a 
-                `numpy.array`. Each numpy array should be
-                of length `n` and each element represents the coefficient of
-                the corresponding variable in the array. The second element is
-                the value of the right hand side of the equation.
+            constraints (`list` of `numpy.array`s.): `numpy.array` 
+                of length `n+1` and each element represents the coefficient of
+                the corresponding variable in the array and the last corresponding
+                to the right hand side of the equation.
         """
         return self.minimize(-objective, bounds, [-c for c in constraints])
 
