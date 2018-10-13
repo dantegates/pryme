@@ -40,13 +40,56 @@ class BaseModel(ReprMixin):
     
     def add_variable(self, variable):
         self.variables.append(variable)
+        
+    def add_bound(self, bound):
+        self.bounds.append(bound)
+
+    def minimize(self, objective):
+        raise NotImplementedError
+
+    def maximize(self, objective):
+        raise NotImplementedError
 
 
 class LinearProgram(BaseModel):
-    pass
+    def minimize(self, objective, bounds, constraints):
+        raise NotImplementedError
+
+    def maximize(self, objective, bounds, constraints):
+        """Maximize the objective function.
+
+        Args:
+            objective (`numpy.array`): Numpy array of length `n` representing the
+                linear coefficients for the model's variables.
+            bounds (`list` of `tuple`s or `None): List of length `n` of `tuple`s 
+                representing the bounds on the model's variables or None if the
+                variable is unbounded. If a `tuple` should have two items either
+                an instance of `Bound` or None. The first represents a lower
+                bound and the second represents an upper bound.
+            constraints (`list` of `numpy.array`s): Each numpy array should be
+                of length `n` and each element represents the coefficient of
+                the corresponding variable in the array.
+        """
+        return self.minimize(-objective, bounds, [-c for c in constraints])
 
 
-class BaseVariable(ReprMixin):
+class Bound:
+    def __new__(cls, *args, **kwargs):
+        instance = super().__new__(cls)
+        current_model = _get_current_model()
+        current_model.add_bound(instance)
+        return instance
+
+    def __init__(self, left, right, comparison):
+        self.left = left
+        self.right = right
+        self.comparison = comparison
+        
+    def __repr__(self):
+        return f'{self.left} {self.comparison} {self.right}'
+
+
+class BaseVariable:
     def __new__(cls, *args, **kwargs):
         instance = super().__new__(cls)
         current_model = _get_current_model()
@@ -55,23 +98,24 @@ class BaseVariable(ReprMixin):
     
     def __init__(self, name):
         self.name = name
-        self.lower_bound = None
-        self.upper_bound = None
+        
+    def __repr__(self):
+        return f'{self.__class__.__name__}({self.name!r})'
         
     def __lt__(self, other):
-        self.upper_bound = (other, 'lt')
+        Bound(self, other, '<')
         return self
     
     def __le__(self, other):
-        self.upper_bound = (other, 'le')
+        Bound(self, other, '<=')
         return self
 
     def __gt__(self, other):
-        self.lower_bound = (other, 'gt')
+        Bound(self, other, '>')
         return self
     
     def __ge__(self, other):
-        self.lower_bound = (other, 'ge')
+        Bound(self, other, '>=')
         return self
     
     def __eq__(self, other):
