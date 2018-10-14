@@ -34,3 +34,6 @@ def objective(x, y):
 
 model.maximize(objective)
 ```
+```
+{RealVariable('x'): 45.0618395369519, RealVariable('y'): 6.47264727553161}
+```
