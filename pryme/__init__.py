@@ -65,20 +65,28 @@ class BaseModel(ReprMixin):
         raise NotImplementedError
 
 
+def _func_wrapper(f, model):
+    def wrapper(x):
+        model.update_vars(x)
+        return f()
+    return wrapper
+        
+
 class Model(BaseModel):
     def minimize(self, objective_fn):
         pass
 
     def _minimize(self, objective_fn, bounds, constraints):
+        wrt = [var.val for var in model.variables]
         l_bounds, u_bounds = self._make_bounds(bounds)
         return scipy.optimize.minimize(
-            lambda x: objective_fn(*x),
+            _func_wrapper(objective_fn, model=model),
             x0=l_bounds,
-            jac=lambda x: gradient(objective_fn)(*x),
+            jac=_func_wrapper(lambda: gradient(objective_fn, wrt=wrt), model=model),
             bounds=scipy.optimize.Bounds(l_bounds, u_bounds),
             constraints=self._make_constraints(constraints),
             method='SLSQP')
-    
+
     def _make_bounds(self, bounds):
         var_names = [v.name for v in self.variables]
         bounds = sorted(bounds.items(), key=lambda x: var_names.index(x[0]))
@@ -90,8 +98,10 @@ class Model(BaseModel):
     
     @staticmethod
     def _make_constraints(constraints):
+        wrt = [var.val for var in model.variables]
         return [
-            dict(type='ineq', fun=lambda x: c(*x), jac=lambda x: gradient(c)(*x))
+            dict(type='ineq', fun=_func_wrapper(c, model=model),
+                 jac=_func_wrapper(lambda: gradient(c, wrt=wrt), model=model))
             for c in constraints
         ]
 
@@ -117,7 +127,10 @@ class Model(BaseModel):
             lambda *args: -1 * objective(*args),
             self.bounds,
             self.constraints)
-#             [lambda *args: -1 * c(*args) for c in self.constraints])
+    
+    def update_vars(self, x):
+        for val, var in zip(x, self.variables):
+            var.update(val)
 
 
 class BaseVariable:
@@ -129,10 +142,10 @@ class BaseVariable:
     
     def __init__(self, name):
         self.name = name
+        self.val = tfe.Variable(0.0, name=self.name)
         
     def __repr__(self):
-        return f'{self.__class__.__name__}({self.name!r})'
-        
+        return f'{self.__class__.__name__}({self.name!r})'        
 
     def __le__(self, other):
         current_model = _get_current_model()
@@ -143,17 +156,39 @@ class BaseVariable:
         current_model = _get_current_model()
         current_model.add_bound(self, other, 'lower')
         return self
+    
+    def __mul__(self, other):
+        return self.val * getattr(other, 'val', other)
+    
+    def __rmul__(self, other):
+        return self.val * getattr(other, 'val', other)
+    
+    def __add__(self, other):
+        return self.val + getattr(other, 'val', other)
+    
+    def __sub__(self, other):
+        return self.val - getattr(other, 'val', other)
+    
+    def __radd__(self, other):
+        return self.val + getattr(other, 'val', other)
+    
+    def __rsub__(self, other):
+        return other - getattr(other, 'val', other)
+    
+    def update(self, value):
+        self.val.assign(value)
         
         
 class RealVariable(BaseVariable):
     pass
 
 
-def gradient(f):
-    def inner(*args):
-        grad = tfe.gradients_function(f)(*args)
-        return np.array([x.numpy() for x in tfe.gradients_function(f)(*args)])
-    return inner
+def gradient(f, wrt):
+    with tf.GradientTape(persistent=True) as t:
+        t.watch(wrt)
+        f_eval = f()
+    df = t.gradient(f_eval, wrt)
+    return np.array([grad.numpy() for grad in df])
     
 
 def constraint(f):
