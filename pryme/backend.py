@@ -21,16 +21,9 @@ def _scipy_adapter(f, model):
 
 
 def minimize(model, objective_fn, variables, constraints):
-    wrt = [var.val for var in variables]
-    l_bounds, u_bounds = _make_bounds(variables)
-    result = scipy.optimize.minimize(
-        _scipy_adapter(objective_fn, model=model),
-        x0=l_bounds,
-        jac=_scipy_adapter(lambda: _gradient(objective_fn, wrt=wrt), model=model),
-        bounds=scipy.optimize.Bounds(l_bounds, u_bounds),
-        constraints=_make_constraints(model, variables, constraints),
-        method='SLSQP')
-    return {var: x for var, x in zip(variables, result.x)}
+    result = _minimize(model, objective_fn, variables, constraints)
+    result['objective_value'] = objective_fn().numpy()
+    return result
 
 
 def maximize(model, objective_fn, variables, constraints):
@@ -51,11 +44,23 @@ def maximize(model, objective_fn, variables, constraints):
             the corresponding variable in the array and the last corresponding
             to the right hand side of the equation.
     """
-    return minimize(
-        model,
-        _negate(objective_fn),
-        variables,
-        constraints)
+    result = _minimize(model, _negate(objective_fn), variables, constraints)
+    result['objective_value'] = objective_fn().numpy()
+    return result
+
+
+def _minimize(model, objective_fn, variables, constraints):
+    wrt = [var.val for var in variables]
+    l_bounds, u_bounds = _make_bounds(variables)
+    tmp_result = scipy.optimize.minimize(
+        _scipy_adapter(objective_fn, model=model),
+        x0=l_bounds,
+        jac=_scipy_adapter(lambda: _gradient(objective_fn, wrt=wrt), model=model),
+        bounds=scipy.optimize.Bounds(l_bounds, u_bounds),
+        constraints=_make_constraints(model, variables, constraints),
+        method='SLSQP')
+    result = {var: x for var, x in zip(variables, tmp_result.x)}
+    return result
 
 
 def constraint(fn, less_equal=None, greater_equal=None):
