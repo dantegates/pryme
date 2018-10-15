@@ -4,8 +4,6 @@ import numpy as np
 import scipy.optimize
 import tensorflow as tf
 
-from . import context
-
 
 tf.enable_eager_execution()
 
@@ -28,7 +26,7 @@ def minimize(model, objective_fn, variables, bounds, constraints):
     result = scipy.optimize.minimize(
         _scipy_adapter(objective_fn, model=model),
         x0=l_bounds,
-        jac=_scipy_adapter(lambda: gradient(objective_fn, wrt=wrt), model=model),
+        jac=_scipy_adapter(lambda: _gradient(objective_fn, wrt=wrt), model=model),
         bounds=scipy.optimize.Bounds(l_bounds, u_bounds),
         constraints=_make_constraints(model, variables, constraints),
         method='SLSQP')
@@ -55,10 +53,21 @@ def maximize(model, objective_fn, variables, bounds, constraints):
     """
     return minimize(
         model,
-        negate(objective_fn),
+        _negate(objective_fn),
         variables,
         bounds,
         constraints)
+
+
+def constraint(fn, less_equal=None, greater_equal=None):
+    if less_equal is not None:
+        def c():
+            return less_equal - fn()
+    elif greater_equal is not None:
+        def c():
+            return fn() - greater_equal
+    return c
+
 
 def _make_bounds(variables, bounds):
     var_names = [v.name for v in variables]
@@ -74,26 +83,20 @@ def _make_constraints(model, variables, constraints):
     wrt = [var.val for var in variables]
     return [
         dict(type='ineq', fun=_scipy_adapter(c, model=model),
-             jac=_scipy_adapter(lambda: gradient(c, wrt=wrt), model=model))
+             jac=_scipy_adapter(lambda: _gradient(c, wrt=wrt), model=model))
         for c in constraints
     ]
 
 
-def gradient(f, wrt):
+def _gradient(f, wrt):
     with tf.GradientTape(persistent=True) as t:
         t.watch(wrt)
         f_eval = f()
     df = t.gradient(f_eval, wrt)
     return np.array([grad.numpy() for grad in df])
-    
-
-def constraint(f):
-    current_model = context.get_current_model()
-    current_model.add_constraint(f)
-    return f
 
 
-def negate(f):
+def _negate(f):
     @functools.wraps(f)
     def wrapper(*args):
         return -1 * f(*args)

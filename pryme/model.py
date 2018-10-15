@@ -1,3 +1,5 @@
+from functools import partial
+
 from . import backend
 from . import context
 
@@ -41,6 +43,13 @@ class BaseModel(ReprMixin):
             self.bounds[var.name][0] = bound
         else:
             self.bounds[var.name][1] = bound
+
+    def constraint(self, fn=None, **kwargs):
+        if fn is None:
+            return partial(self.constraint, **kwargs)
+        constraint = backend.constraint(fn, **kwargs)
+        self.constraints.append(constraint)
+        return fn
         
     def add_constraint(self, constraint):
         self.constraints.append(constraint)
