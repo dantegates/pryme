@@ -29,8 +29,8 @@ with Model() as model:
     def c2():
         return 30*x + 33*y
 
-def objective():
-    return x + y - 50
+    def objective():
+        return x + y - 50
 
 model.maximize(objective)
 ```
