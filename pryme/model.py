@@ -114,6 +114,9 @@ class BaseVariable:
     
     def __rsub__(self, other):
         return other - getattr(other, 'val', other)
+
+    def __pow__(self, other):
+        return self.val ** other
     
     def update(self, value):
         self.val.assign(value)
