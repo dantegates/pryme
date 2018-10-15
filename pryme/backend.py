@@ -4,6 +4,8 @@ import numpy as np
 import scipy.optimize
 import tensorflow as tf
 
+from .utils import ReprMixin
+
 
 tf.enable_eager_execution()
 
@@ -11,6 +13,24 @@ tfe = tf.contrib.eager # shorthand for some symbols
 
 
 Variable = tfe.Variable
+
+
+class Constraint(ReprMixin):
+    def __init__(self, fn, less_equal=None, greater_equal=None):
+        self.fn = fn.__name__
+        if less_equal is not None:
+            self.less_equal = less_equal
+            def c():
+                return less_equal - fn()
+        elif greater_equal is not None:
+            self.greater_equal = greater_equal
+            def c():
+                return fn() - greater_equal
+
+        self._constraint = c
+
+    def __call__(self):
+        return self._constraint()
 
 
 def _scipy_adapter(f, model):
@@ -61,16 +81,6 @@ def _minimize(model, objective_fn, variables, constraints):
         method='SLSQP')
     result = {var: x for var, x in zip(variables, tmp_result.x)}
     return result
-
-
-def constraint(fn, less_equal=None, greater_equal=None):
-    if less_equal is not None:
-        def c():
-            return less_equal - fn()
-    elif greater_equal is not None:
-        def c():
-            return fn() - greater_equal
-    return c
 
 
 def _make_bounds(variables):

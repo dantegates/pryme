@@ -4,21 +4,7 @@ import numpy as np
 
 from . import backend
 from . import context
-
-
-def _public_attrs(obj):
-    attrs = ((attr, getattr(obj, attr))
-             for attr in dir(obj)
-             if not attr.startswith('_')
-             and not callable(getattr(obj, attr)))
-    return sorted(attrs)
-
-
-class ReprMixin:
-    def __repr__(self):
-        name = getattr(self, '__name__', self.__class__.__name__)
-        attrs = ', '.join(f'{attr}={val!r}' for attr, val in _public_attrs(self))
-        return f'{name}({attrs})'
+from .utils import ReprMixin
 
 
 class BaseModel(ReprMixin):
@@ -40,7 +26,7 @@ class BaseModel(ReprMixin):
     def constraint(self, fn=None, **kwargs):
         if fn is None:
             return partial(self.constraint, **kwargs)
-        constraint = backend.constraint(fn, **kwargs)
+        constraint = backend.Constraint(fn, **kwargs)
         self.constraints.append(constraint)
         return fn
         
@@ -78,9 +64,6 @@ class BaseVariable(ReprMixin):
         self.lower_bound = lower_bound
         self.upper_bound = upper_bound
         self._val = backend.Variable(0.0, name=self.name)
-
-    def __repr__(self):
-        return f'{self.__class__.__name__}({self.name!r})'
 
     def __le__(self, other):
         current_model = context.get_current_model()
