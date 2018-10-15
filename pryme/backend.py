@@ -12,7 +12,8 @@ tf.enable_eager_execution()
 tfe = tf.contrib.eager # shorthand for some symbols
 
 
-Variable = tfe.Variable
+class Variable(tfe.Variable):
+    pass
 
 
 class Constraint(ReprMixin):
@@ -70,12 +71,11 @@ def maximize(model, objective_fn, variables, constraints):
 
 
 def _minimize(model, objective_fn, variables, constraints):
-    wrt = [var._val for var in variables]
     l_bounds, u_bounds = _make_bounds(variables)
     tmp_result = scipy.optimize.minimize(
         _scipy_adapter(objective_fn, model=model),
         x0=l_bounds,
-        jac=_scipy_adapter(lambda: _gradient(objective_fn, wrt=wrt), model=model),
+        jac=_scipy_adapter(lambda: _gradient(objective_fn, wrt=variables), model=model),
         bounds=scipy.optimize.Bounds(l_bounds, u_bounds),
         constraints=_make_constraints(model, variables, constraints),
         method='SLSQP')
@@ -92,10 +92,9 @@ def _make_bounds(variables):
 
 
 def _make_constraints(model, variables, constraints):
-    wrt = [var._val for var in variables]
     return [
         dict(type='ineq', fun=_scipy_adapter(c, model=model),
-             jac=_scipy_adapter(lambda: _gradient(c, wrt=wrt), model=model))
+             jac=_scipy_adapter(lambda: _gradient(c, wrt=variables), model=model))
         for c in constraints
     ]
 

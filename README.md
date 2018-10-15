@@ -12,25 +12,29 @@ from pryme import Model, RealVariable, constraint
 
 # roughly taken from
 # http://people.brunel.ac.uk/~mastjjb/jeb/or/morelp.html
-with Model() as model:
-    x = RealVariable('x')
-    y = RealVariable('y')
+from pryme import Model, RealVariable
 
-    # bounds on variables
-    x >= 45
-    5 <= y <= 20
+
+# roughly taken from
+# http://people.brunel.ac.uk/~mastjjb/jeb/or/morelp.html
+with Model() as model:
+    x = RealVariable('x', lower_bound=45)
+    y = RealVariable('y', lower_bound=5, upper_bound=20)
     
-    # constraints
-    @constraint
-    def c1(x, y):
-        return 2400 - 50*x - 24*y
-        
-    @constraint
-    def c2(x, y):
-        return 2100 - 30*x - 33*y
-    
-def objective(x, y):
+    @model.constraint(less_equal=2401)
+    def c1():
+        return 50*x + 24*y
+
+    @model.constraint(less_equal=2100)
+    def c2():
+        return 30*x + 33*y
+
+def objective():
     return x + y - 50
 
 model.maximize(objective)
+```
+{<tf.Variable 'x:0' shape=() dtype=float32, numpy=45.07278>: 45.072779832561416,
+ <tf.Variable 'y:0' shape=() dtype=float32, numpy=6.387564>: 6.387564146508517,
+ 'objective_value': 1.4603462}
 ```

@@ -49,56 +49,22 @@ class Model(BaseModel):
     
     def update_vars(self, x):
         for val, var in zip(x, self.variables):
-            var.update(val)
+            var.assign(val)
 
 
-class BaseVariable(ReprMixin):
+class BaseVariable(backend.Variable):
     def __new__(cls, *args, **kwargs):
         instance = super().__new__(cls)
         current_model = context.get_current_model()
         current_model.add_variable(instance)
         return instance
 
-    def __init__(self, name, lower_bound=-np.inf, upper_bound=np.inf):
-        self.name = name
+    def __init__(self, name, *, lower_bound=None, upper_bound=None, **kwargs):
         self.lower_bound = lower_bound
         self.upper_bound = upper_bound
-        self._val = backend.Variable(0.0, name=self.name)
+        super().__init__(0.0, name=name, **kwargs)
 
-    def __le__(self, other):
-        current_model = context.get_current_model()
-        current_model.add_bound(self, other, 'upper')
-        return self
 
-    def __ge__(self, other):
-        current_model = context.get_current_model()
-        current_model.add_bound(self, other, 'lower')
-        return self
-    
-    def __mul__(self, other):
-        return self._val * getattr(other, '_val', other)
-    
-    def __rmul__(self, other):
-        return self._val * getattr(other, '_val', other)
-    
-    def __add__(self, other):
-        return self._val + getattr(other, '_val', other)
-    
-    def __sub__(self, other):
-        return self._val - getattr(other, '_val', other)
-    
-    def __radd__(self, other):
-        return self._val + getattr(other, '_val', other)
-    
-    def __rsub__(self, other):
-        return other - getattr(other, '_val', other)
-
-    def __pow__(self, other):
-        return self._val ** other
-    
-    def update(self, value):
-        self._val.assign(value)
-        
-        
 class RealVariable(BaseVariable):
-    pass
+    def __init__(self, *args, lower_bound=-np.inf, upper_bound=np.inf, **kwargs):
+        super().__init__(*args, lower_bound=lower_bound, upper_bound=upper_bound, **kwargs)
