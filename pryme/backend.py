@@ -50,7 +50,7 @@ def maximize(model, objective_fn, variables, constraints):
 
 
 def _minimize(model, objective_fn, variables, constraints):
-    wrt = [var.val for var in variables]
+    wrt = [var._val for var in variables]
     l_bounds, u_bounds = _make_bounds(variables)
     tmp_result = scipy.optimize.minimize(
         _scipy_adapter(objective_fn, model=model),
@@ -82,7 +82,7 @@ def _make_bounds(variables):
 
 
 def _make_constraints(model, variables, constraints):
-    wrt = [var.val for var in variables]
+    wrt = [var._val for var in variables]
     return [
         dict(type='ineq', fun=_scipy_adapter(c, model=model),
              jac=_scipy_adapter(lambda: _gradient(c, wrt=wrt), model=model))

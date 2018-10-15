@@ -66,21 +66,21 @@ class Model(BaseModel):
             var.update(val)
 
 
-class BaseVariable:
+class BaseVariable(ReprMixin):
     def __new__(cls, *args, **kwargs):
         instance = super().__new__(cls)
         current_model = context.get_current_model()
         current_model.add_variable(instance)
         return instance
-    
+
     def __init__(self, name, lower_bound=-np.inf, upper_bound=np.inf):
         self.name = name
         self.lower_bound = lower_bound
         self.upper_bound = upper_bound
-        self.val = backend.Variable(0.0, name=self.name)
-        
+        self._val = backend.Variable(0.0, name=self.name)
+
     def __repr__(self):
-        return f'{self.__class__.__name__}({self.name!r})'        
+        return f'{self.__class__.__name__}({self.name!r})'
 
     def __le__(self, other):
         current_model = context.get_current_model()
@@ -93,28 +93,28 @@ class BaseVariable:
         return self
     
     def __mul__(self, other):
-        return self.val * getattr(other, 'val', other)
+        return self._val * getattr(other, '_val', other)
     
     def __rmul__(self, other):
-        return self.val * getattr(other, 'val', other)
+        return self._val * getattr(other, '_val', other)
     
     def __add__(self, other):
-        return self.val + getattr(other, 'val', other)
+        return self._val + getattr(other, '_val', other)
     
     def __sub__(self, other):
-        return self.val - getattr(other, 'val', other)
+        return self._val - getattr(other, '_val', other)
     
     def __radd__(self, other):
-        return self.val + getattr(other, 'val', other)
+        return self._val + getattr(other, '_val', other)
     
     def __rsub__(self, other):
-        return other - getattr(other, 'val', other)
+        return other - getattr(other, '_val', other)
 
     def __pow__(self, other):
-        return self.val ** other
+        return self._val ** other
     
     def update(self, value):
-        self.val.assign(value)
+        self._val.assign(value)
         
         
 class RealVariable(BaseVariable):
