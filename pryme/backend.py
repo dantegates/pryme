@@ -13,7 +13,8 @@ tfe = tf.contrib.eager # shorthand for some symbols
 
 
 class Variable(tfe.Variable):
-    pass
+    def sum(self):
+        return tf.reduce_sum(self)
 
 
 class Constraint(ReprMixin):

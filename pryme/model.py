@@ -19,6 +19,10 @@ class BaseModel(ReprMixin):
     def __exit__(self, *exc):
         context.pop_context()
         return False
+
+    def add_variables(self, variables):
+        for variable in variables:
+            self.add_variable(variable)
     
     def add_variable(self, variable):
         self.variables.append(variable)
@@ -29,9 +33,8 @@ class BaseModel(ReprMixin):
         constraint = backend.Constraint(fn, **kwargs)
         self.constraints.append(constraint)
         return fn
-        
-    def add_constraint(self, constraint):
-        self.constraints.append(constraint)
+
+    add_constraint = constraint
 
     def minimize(self, objective):
         raise NotImplementedError
@@ -55,16 +58,29 @@ class Model(BaseModel):
 class BaseVariable(backend.Variable):
     def __new__(cls, *args, **kwargs):
         instance = super().__new__(cls)
-        current_model = context.get_current_model()
-        current_model.add_variable(instance)
+        try:
+            current_model = context.get_current_model()
+        except IndexError:
+            pass
+        else:
+            current_model.add_variable(instance)
         return instance
 
     def __init__(self, name, *, lower_bound=None, upper_bound=None, **kwargs):
         self.lower_bound = lower_bound
         self.upper_bound = upper_bound
-        super().__init__(0.0, name=name, **kwargs)
+        initial_val = self._initial_val()
+        super().__init__(initial_val, name=name, **kwargs)
+
+    def _initial_val(self):
+        return NotImplementedError
 
 
 class RealVariable(BaseVariable):
-    def __init__(self, *args, lower_bound=-np.inf, upper_bound=np.inf, **kwargs):
+    def __init__(self, *args, shape=None, lower_bound=-np.inf, upper_bound=np.inf, **kwargs):
+        # name mangling
+        self.__shape = shape
         super().__init__(*args, lower_bound=lower_bound, upper_bound=upper_bound, **kwargs)
+
+    def _initial_val(self):
+        return 0.0
