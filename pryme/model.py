@@ -1,5 +1,7 @@
 from functools import partial
 
+import numpy as np
+
 from . import backend
 from . import context
 
@@ -23,7 +25,6 @@ class BaseModel(ReprMixin):
     def __init__(self):
         self.variables = []
         self.constraints = []
-        self.bounds = {}
 
     def __enter__(self):
         context.append_context(self)
@@ -35,14 +36,6 @@ class BaseModel(ReprMixin):
     
     def add_variable(self, variable):
         self.variables.append(variable)
-        
-    def add_bound(self, var, bound, kind):
-        if not var.name in self.bounds:
-            self.bounds[var.name]= [None, None]
-        if kind == 'lower':
-            self.bounds[var.name][0] = bound
-        else:
-            self.bounds[var.name][1] = bound
 
     def constraint(self, fn=None, **kwargs):
         if fn is None:
@@ -63,10 +56,10 @@ class BaseModel(ReprMixin):
 
 class Model(BaseModel):
     def minimize(self, objective_fn):
-        return backend.minimize(self, objective_fn, self.variables, self.bounds, self.constraints)
+        return backend.minimize(self, objective_fn, self.variables, self.constraints)
     
     def maximize(self, objective_fn):
-        return backend.maximize(self, objective_fn, self.variables, self.bounds, self.constraints)
+        return backend.maximize(self, objective_fn, self.variables, self.constraints)
     
     def update_vars(self, x):
         for val, var in zip(x, self.variables):
@@ -80,8 +73,10 @@ class BaseVariable:
         current_model.add_variable(instance)
         return instance
     
-    def __init__(self, name):
+    def __init__(self, name, lower_bound=-np.inf, upper_bound=np.inf):
         self.name = name
+        self.lower_bound = lower_bound
+        self.upper_bound = upper_bound
         self.val = backend.Variable(0.0, name=self.name)
         
     def __repr__(self):

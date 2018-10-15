@@ -20,9 +20,9 @@ def _scipy_adapter(f, model):
     return wrapper
 
 
-def minimize(model, objective_fn, variables, bounds, constraints):
+def minimize(model, objective_fn, variables, constraints):
     wrt = [var.val for var in variables]
-    l_bounds, u_bounds = _make_bounds(variables, bounds)
+    l_bounds, u_bounds = _make_bounds(variables)
     result = scipy.optimize.minimize(
         _scipy_adapter(objective_fn, model=model),
         x0=l_bounds,
@@ -33,7 +33,7 @@ def minimize(model, objective_fn, variables, bounds, constraints):
     return {var: x for var, x in zip(variables, result.x)}
 
 
-def maximize(model, objective_fn, variables, bounds, constraints):
+def maximize(model, objective_fn, variables, constraints):
     """Maximize the objective function.
 
     Args:
@@ -55,7 +55,6 @@ def maximize(model, objective_fn, variables, bounds, constraints):
         model,
         _negate(objective_fn),
         variables,
-        bounds,
         constraints)
 
 
@@ -69,10 +68,8 @@ def constraint(fn, less_equal=None, greater_equal=None):
     return c
 
 
-def _make_bounds(variables, bounds):
-    var_names = [v.name for v in variables]
-    bounds = sorted(bounds.items(), key=lambda x: var_names.index(x[0]))
-    bounds = [v for k, v in bounds]
+def _make_bounds(variables):
+    bounds = [(v.lower_bound, v.upper_bound) for v in variables]
     lower_bounds, upper_bounds = zip(*bounds)
     lower_bounds = [-np.inf if x is None else x for x in lower_bounds]
     upper_bounds = [np.inf if x is None else x for x in upper_bounds]
