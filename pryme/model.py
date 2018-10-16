@@ -92,13 +92,29 @@ class BaseVariable(backend.Variable):
 
 
 class RealVariable(BaseVariable):
-    def __init__(self, *args, shape=None, lower_bound=-np.inf, upper_bound=np.inf, **kwargs):
+    def __init__(self, *args, shape=None, lower_bound=None, upper_bound=None, **kwargs):
         # name mangling
         self.__shape = shape
+        lower_bound, upper_bound = self._default_bounds(lower_bound, upper_bound)
         super().__init__(*args, lower_bound=lower_bound, upper_bound=upper_bound, **kwargs)
 
     def _initial_val(self):
-        return 0.0
+        if self.__shape is not None:
+            return np.zeros(self.__shape, dtype=np.float64)
+        return np.float64(0.0)
+
+    def _default_bounds(self, lower_bound, upper_bound):
+        if lower_bound is None:
+            if self.__shape is None:
+                lower_bound = -np.inf
+            else:
+                lower_bound = np.repeat(-np.inf, self.__shape)
+        if upper_bound is None:
+            if self.__shape is None:
+                upper_bound = np.inf
+            else:
+                upper_bound = np.repeat(np.inf, self.__shape)
+        return lower_bound, upper_bound
 
     def __le__(self, other):
         if isinstance(other, bound):
@@ -152,8 +168,10 @@ class constrain(ReprMixin):
 def minimize(objective):
     model = context.get_current_model()
     model.add_objective(objective, type='minimization')
+    return objective
 
 
 def maximize(objective):
     model = context.get_current_model()
     model.add_objective(objective, type='maximization')
+    return objective

@@ -23,9 +23,28 @@ class Variable(tf.Variable):
     pass
 
 
+def _get_shape(variable):
+    return tuple(dim.value for dim in variable.get_shape().dims)
+
+
+def _map_x_to_variable_values(variables, x):
+    variable_values = {}
+    i = 0
+    for var in variables:
+        try:
+            var_len = _get_shape(var)[0]
+        except IndexError:
+            var_len = 1
+            variable_values[var] = x[i]
+        else:
+            variable_values[var] = x[i:i+var_len]
+        i += var_len
+    return variable_values
+
+
 def _scipy_adapter(expression, variables):
     def wrapper(x):
-        variable_values = {var: val for var, val in zip(variables, x)}
+        variable_values = _map_x_to_variable_values(variables, x)
         return run_expression(expression, variable_values=variable_values)
     return wrapper
 
@@ -62,20 +81,27 @@ def maximize(objective, variables, constraints):
 
 def _minimize(objective, variables, constraints):
     l_bounds, u_bounds = _make_bounds(variables)
-    tmp_result = scipy.optimize.minimize(
+    result = scipy.optimize.minimize(
         _scipy_adapter(objective, variables=variables),
         x0=l_bounds,
         jac=_scipy_adapter(_gradient(objective, wrt=variables), variables=variables),
         bounds=scipy.optimize.Bounds(l_bounds, u_bounds),
         constraints=_make_constraints(variables, constraints),
         method='SLSQP')
-    result = {var: x for var, x in zip(variables, tmp_result.x)}
-    return result
+    solution = _map_x_to_variable_values(variables, result.x)
+    return solution
 
 
 def _make_bounds(variables):
-    bounds = [(v.lower_bound, v.upper_bound) for v in variables]
-    lower_bounds, upper_bounds = zip(*bounds)
+    lower_bounds = []
+    upper_bounds = []
+    for var in variables:
+        try:
+            lower_bounds.extend(var.lower_bound)
+            upper_bounds.extend(var.upper_bound)
+        except TypeError:
+            lower_bounds.append(var.lower_bound)
+            upper_bounds.append(var.upper_bound)
     lower_bounds = [-np.inf if x is None else x for x in lower_bounds]
     upper_bounds = [np.inf if x is None else x for x in upper_bounds]
     return np.array(lower_bounds), np.array(upper_bounds)
