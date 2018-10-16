@@ -27,35 +27,37 @@ def _get_shape(variable):
     return tuple(dim.value for dim in variable.get_shape().dims)
 
 
-def _map_x_to_variable_values(variables, x):
-    variable_values = {}
+def _map_x_to_variable_indices(variables):
+    variable_indices = []
     i = 0
     for var in variables:
         try:
             var_len = _get_shape(var)[0]
         except IndexError:
             var_len = 1
-            variable_values[var] = x[i]
+            variable_indices.append((var, i))
         else:
-            variable_values[var] = x[i:i+var_len]
+            variable_indices.append((var,  slice(i, i+var_len)))
         i += var_len
-    return variable_values
+    return variable_indices
 
 
-def _scipy_adapter(expression, variables):
+def _scipy_adapter(expression, variables, name=None):
+    variable_indices = _map_x_to_variable_indices(variables)
     def wrapper(x):
-        variable_values = _map_x_to_variable_values(variables, x)
-        return run_expression(expression, variable_values=variable_values)
+        variable_values = {var: x[idx] for var, idx in variable_indices}
+        output = run_expression(expression, variable_values=variable_values)
+        return output
     return wrapper
 
 
-def minimize(objective, variables, constraints):
-    solution = _minimize(objective, variables, constraints)
+def minimize(objective, variables, constraints, **kwargs):
+    solution = _minimize(objective, variables, constraints, **kwargs)
     objective_value = run_expression(objective, solution)
     return {'solution': solution, 'objective_value': objective_value}
 
 
-def maximize(objective, variables, constraints):
+def maximize(objective, variables, constraints, **kwargs):
     """Maximize the objective function.
 
     Args:
@@ -73,23 +75,25 @@ def maximize(objective, variables, constraints):
             the corresponding variable in the array and the last corresponding
             to the right hand side of the equation.
     """
-    solution = _minimize(-1 * objective, variables, constraints)
+    solution = _minimize(-1 * objective, variables, constraints, **kwargs)
     objective_value = run_expression(objective, solution)
     return {'solution': {var.name: val for var, val in solution.items()},
             'objective_value': objective_value}
 
 
-def _minimize(objective, variables, constraints):
+def _minimize(objective, variables, constraints, x0=None, gradient=None, **kwargs):
     l_bounds, u_bounds = _make_bounds(variables)
+    gradient = _gradient if gradient is None else gradient
     result = scipy.optimize.minimize(
-        _scipy_adapter(objective, variables=variables),
-        x0=l_bounds,
-        jac=_scipy_adapter(_gradient(objective, wrt=variables), variables=variables),
+        _scipy_adapter(objective, variables=variables, name='objective'),
+        x0=l_bounds if x0 is None else x0,
+        jac=_scipy_adapter(gradient(objective, wrt=variables), variables=variables, name='objective grad'),
         bounds=scipy.optimize.Bounds(l_bounds, u_bounds),
-        constraints=_make_constraints(variables, constraints),
-        method='SLSQP')
-    solution = _map_x_to_variable_values(variables, result.x)
-    return solution
+        constraints=_make_constraints(variables, constraints, gradient),
+        method='SLSQP',
+        options=kwargs if kwargs else {})
+    variable_indices = _map_x_to_variable_indices(variables)
+    return {var: result.x[idx] for var, idx in variable_indices}
 
 
 def _make_bounds(variables):
@@ -107,12 +111,12 @@ def _make_bounds(variables):
     return np.array(lower_bounds), np.array(upper_bounds)
 
 
-def _make_constraints(variables, constraints):
+def _make_constraints(variables, constraints, gradient):
     out = []
     for c in constraints:
-        f = _scipy_adapter(c.expression, variables=variables)
-        gradient_expression = _gradient(c.expression, wrt=variables)
-        f_gradient = _scipy_adapter(gradient_expression, variables=variables)
+        f = _scipy_adapter(c.expression, variables=variables, name='constraint')
+        gradient_expression = gradient(c.expression, wrt=variables)
+        f_gradient = _scipy_adapter(gradient_expression, variables=variables, name='constraint_grad')
         out.append(dict(type=c.type, fun=f, jac=f_gradient))
     return out
 

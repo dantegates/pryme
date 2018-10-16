@@ -31,7 +31,8 @@ class BaseModel(ReprMixin):
 
     def add_constraint(self, constraint=None, *, less_equal=None, greater_equal=None, equal=None):
         if constraint is None:
-            return partial(self.add_constraint, less_equal=less_equal, greater_equal=greater_equal)
+            return partial(self.add_constraint, less_equal=less_equal,
+                           greater_equal=greater_equal, equal=equal)
         elif not isinstance(constraint, constrain):
             user_experession = constraint() if callable(constraint) else constraint
             if less_equal is not None:
@@ -65,9 +66,9 @@ class BaseModel(ReprMixin):
         
 
 class Model(BaseModel):
-    def solve(self):
+    def solve(self, **kwargs):
         solver = backend.minimize if self.type == 'minimization' else backend.maximize
-        return solver(self.objective, self.variables, self.constraints)
+        return solver(self.objective, self.variables, self.constraints, **kwargs)
 
 
 class BaseVariable(backend.Variable):
