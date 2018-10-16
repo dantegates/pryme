@@ -1,27 +1,18 @@
+from functools import partial, singledispatch
+
+import numpy as np
+
 from . import backend
 from . import context
-
-
-def _public_attrs(obj):
-    attrs = ((attr, getattr(obj, attr))
-             for attr in dir(obj)
-             if not attr.startswith('_')
-             and not callable(getattr(obj, attr)))
-    return sorted(attrs)
-
-
-class ReprMixin:
-    def __repr__(self):
-        name = getattr(self, '__name__', self.__class__.__name__)
-        attrs = ', '.join(f'{attr}={val!r}' for attr, val in _public_attrs(self))
-        return f'{name}({attrs})'
+from .utils import ReprMixin
 
 
 class BaseModel(ReprMixin):
     def __init__(self):
         self.variables = []
         self.constraints = []
-        self.bounds = {}
+        self.objective = None
+        self.flavor = None
 
     def __enter__(self):
         context.append_context(self)
@@ -30,85 +21,158 @@ class BaseModel(ReprMixin):
     def __exit__(self, *exc):
         context.pop_context()
         return False
+
+    def add_variables(self, variables):
+        for variable in variables:
+            self.add_variable(variable)
     
     def add_variable(self, variable):
         self.variables.append(variable)
-        
-    def add_bound(self, var, bound, kind):
-        if not var.name in self.bounds:
-            self.bounds[var.name]= [None, None]
-        if kind == 'lower':
-            self.bounds[var.name][0] = bound
+
+    def add_constraint(self, constraint=None, *, less_equal=None, greater_equal=None, equal=None):
+        if constraint is None:
+            return partial(self.add_constraint, less_equal=less_equal,
+                           greater_equal=greater_equal, equal=equal)
+        elif not isinstance(constraint, constrain):
+            user_experession = constraint() if callable(constraint) else constraint
+            if less_equal is not None:
+                type = 'ineq'
+                expression = less_equal - user_experession
+            elif greater_equal is not None:
+                type = 'ineq'
+                expression = user_experession - greater_equal
+            elif equal is not None:
+                type = 'eq'
+                expression = user_experession
+            else:
+                raise ValueError
+            c = constrain(expression=expression, type=type)
         else:
-            self.bounds[var.name][1] = bound
-        
-    def add_constraint(self, constraint):
-        self.constraints.append(constraint)
+            c = constraint
+        self.constraints.append(c)
+        return constraint
 
-    def minimize(self, objective):
-        raise NotImplementedError
+    def add_objective(self, objective=None, *, type):
+        if objective is None:
+            return partial(self.add_objective, type=type)
+        if callable(objective):
+            objective = objective()  # obtain an expression
+        self.objective = objective
+        self.type = type
+        return objective
 
-    def maximize(self, objective):
+    def solve(self):
         raise NotImplementedError
         
 
 class Model(BaseModel):
-    def minimize(self, objective_fn):
-        return backend.minimize(self, objective_fn, self.variables, self.bounds, self.constraints)
-    
-    def maximize(self, objective_fn):
-        return backend.maximize(self, objective_fn, self.variables, self.bounds, self.constraints)
-    
-    def update_vars(self, x):
-        for val, var in zip(x, self.variables):
-            var.update(val)
+    def solve(self, **kwargs):
+        solver = backend.minimize if self.type == 'minimization' else backend.maximize
+        return solver(self.objective, self.variables, self.constraints, **kwargs)
 
 
-class BaseVariable:
+class BaseVariable(backend.Variable):
     def __new__(cls, *args, **kwargs):
         instance = super().__new__(cls)
-        current_model = context.get_current_model()
-        current_model.add_variable(instance)
+        try:
+            current_model = context.get_current_model()
+        except IndexError:
+            pass
+        else:
+            current_model.add_variable(instance)
         return instance
-    
-    def __init__(self, name):
-        self.name = name
-        self.val = backend.Variable(0.0, name=self.name)
-        
-    def __repr__(self):
-        return f'{self.__class__.__name__}({self.name!r})'        
+
+    def __init__(self, name, *, lower_bound=None, upper_bound=None, **kwargs):
+        self.lower_bound = lower_bound
+        self.upper_bound = upper_bound
+        initial_val = self._initial_val()
+        super().__init__(initial_val, name=name, **kwargs)
+
+    def _initial_val(self):
+        return NotImplementedError
+
+
+class RealVariable(BaseVariable):
+    def __init__(self, *args, shape=None, lower_bound=None, upper_bound=None, **kwargs):
+        # name mangling
+        self.__shape = shape
+        lower_bound, upper_bound = self._default_bounds(lower_bound, upper_bound)
+        super().__init__(*args, lower_bound=lower_bound, upper_bound=upper_bound, **kwargs)
+
+    def _initial_val(self):
+        if self.__shape is not None:
+            return np.zeros(self.__shape, dtype=np.float64)
+        return np.float64(0.0)
+
+    def _default_bounds(self, lower_bound, upper_bound):
+        if lower_bound is None:
+            if self.__shape is None:
+                lower_bound = -np.inf
+            else:
+                lower_bound = np.repeat(-np.inf, self.__shape)
+        if upper_bound is None:
+            if self.__shape is None:
+                upper_bound = np.inf
+            else:
+                upper_bound = np.repeat(np.inf, self.__shape)
+        return lower_bound, upper_bound
 
     def __le__(self, other):
-        current_model = context.get_current_model()
-        current_model.add_bound(self, other, 'upper')
-        return self
+        if isinstance(other, bound):
+            self.upper_bound = other.value
+            return self
+        return super().__le__(other)
 
     def __ge__(self, other):
-        current_model = context.get_current_model()
-        current_model.add_bound(self, other, 'lower')
-        return self
-    
-    def __mul__(self, other):
-        return self.val * getattr(other, 'val', other)
-    
-    def __rmul__(self, other):
-        return self.val * getattr(other, 'val', other)
-    
-    def __add__(self, other):
-        return self.val + getattr(other, 'val', other)
-    
-    def __sub__(self, other):
-        return self.val - getattr(other, 'val', other)
-    
-    def __radd__(self, other):
-        return self.val + getattr(other, 'val', other)
-    
-    def __rsub__(self, other):
-        return other - getattr(other, 'val', other)
-    
-    def update(self, value):
-        self.val.assign(value)
-        
-        
-class RealVariable(BaseVariable):
-    pass
+        if isinstance(other, bound):
+            self.lower_bound = other.value
+            return self
+        return super().__ge__(other)
+
+
+class bound(ReprMixin):
+    def __init__(self, value):
+        self.value = value
+
+
+class constrain(ReprMixin):
+    def __init__(self, expression, *, type=None):
+        self.expression = expression
+        self.type = type
+
+    def __eq__(self, other):
+        self._register_with_current_model()
+        self.type = 'eq'
+        return other
+
+    def __le__(self, other):
+        self._register_with_current_model()
+        self.expression = other - self.expression
+        self.type = 'ineq'
+        return other
+
+    def __ge__(self, other):
+        self._register_with_current_model()
+        self.expression = self.expression - other
+        self.type = 'ineq'
+        return other
+
+    def _register_with_current_model(self, **kwargs):
+        try:
+            current_model = context.get_current_model()
+        except IndexError:
+            pass
+        else:
+            current_model.add_constraint(self)
+
+
+def minimize(objective):
+    model = context.get_current_model()
+    model.add_objective(objective, type='minimization')
+    return objective
+
+
+def maximize(objective):
+    model = context.get_current_model()
+    model.add_objective(objective, type='maximization')
+    return objective
