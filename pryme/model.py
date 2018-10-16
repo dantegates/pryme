@@ -11,6 +11,8 @@ class BaseModel(ReprMixin):
     def __init__(self):
         self.variables = []
         self.constraints = []
+        self.objective = None
+        self.flavor = None
 
     def __enter__(self):
         context.append_context(self)
@@ -28,43 +30,44 @@ class BaseModel(ReprMixin):
         self.variables.append(variable)
 
     def add_constraint(self, constraint=None, *, less_equal=None, greater_equal=None, equal=None):
-        if constraint is not None:
-            if not isinstance(constraint, Constraint):
-                user_experession = constraint() if callable(constraint) else constraint
-                if less_equal is not None:
-                    type = 'ineq'
-                    expression = less_equal - user_experession
-                elif greater_equal is not None:
-                    type = 'ineq'
-                    expression = user_experession - greater_equal
-                elif equal is not None:
-                    type = 'eq'
-                    expression = user_experession
-                else:
-                    raise ValueError
-                constraint = Constraint(expression=expression, type=type)
-            self.constraints.append(constraint)
+        if constraint is None:
+            return partial(self.add_constraint, less_equal=less_equal, greater_equal=greater_equal)
+        elif not isinstance(constraint, constrain):
+            user_experession = constraint() if callable(constraint) else constraint
+            if less_equal is not None:
+                type = 'ineq'
+                expression = less_equal - user_experession
+            elif greater_equal is not None:
+                type = 'ineq'
+                expression = user_experession - greater_equal
+            elif equal is not None:
+                type = 'eq'
+                expression = user_experession
+            else:
+                raise ValueError
+            c = constrain(expression=expression, type=type)
         else:
-            return partial(self.add_constraint, less_equal=less_equal,
-                           greater_equal=greater_equal)
+            c = constraint
+        self.constraints.append(c)
+        return constraint
 
-    def minimize(self, objective):
-        raise NotImplementedError
+    def add_objective(self, objective=None, *, type):
+        if objective is None:
+            return partial(self.add_objective, type=type)
+        if callable(objective):
+            objective = objective()  # obtain an expression
+        self.objective = objective
+        self.type = type
+        return objective
 
-    def maximize(self, objective):
+    def solve(self):
         raise NotImplementedError
         
 
 class Model(BaseModel):
-    def minimize(self, objective):
-        if callable(objective):
-            objective = objective()  # obtain an expression
-        return backend.minimize(objective, self.variables, self.constraints)
-    
-    def maximize(self, objective):
-        if callable(objective):
-            objective = objective()  # obtain an expression
-        return backend.maximize(objective, self.variables, self.constraints)
+    def solve(self):
+        solver = backend.minimize if self.type == 'minimization' else backend.maximize
+        return solver(self.objective, self.variables, self.constraints)
 
 
 class BaseVariable(backend.Variable):
@@ -98,44 +101,42 @@ class RealVariable(BaseVariable):
         return 0.0
 
     def __le__(self, other):
-        if isinstance(other, Bound):
+        if isinstance(other, bound):
             self.upper_bound = other.value
             return self
         return super().__le__(other)
 
     def __ge__(self, other):
-        if isinstance(other, Bound):
+        if isinstance(other, bound):
             self.lower_bound = other.value
             return self
         return super().__ge__(other)
 
 
-class Bound(ReprMixin):
+class bound(ReprMixin):
     def __init__(self, value):
         self.value = value
 
 
-class Constraint(ReprMixin):
-    def __init__(self, value=None, *, expression=None, type=None):
-        self.value = value
+class constrain(ReprMixin):
+    def __init__(self, expression, *, type=None):
         self.expression = expression
         self.type = type
 
     def __eq__(self, other):
         self._register_with_current_model()
-        self.expression = other
         self.type = 'eq'
         return other
 
     def __le__(self, other):
         self._register_with_current_model()
-        self.expression = other - self.value
+        self.expression = other - self.expression
         self.type = 'ineq'
         return other
 
     def __ge__(self, other):
         self._register_with_current_model()
-        self.expression = self.value - other
+        self.expression = self.expression - other
         self.type = 'ineq'
         return other
 
@@ -146,3 +147,13 @@ class Constraint(ReprMixin):
             pass
         else:
             current_model.add_constraint(self)
+
+
+def minimize(objective):
+    model = context.get_current_model()
+    model.add_objective(objective, type='minimization')
+
+
+def maximize(objective):
+    model = context.get_current_model()
+    model.add_objective(objective, type='maximization')
