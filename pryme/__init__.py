@@ -1,1 +1,1 @@
-from .model import Model, RealVariable
+from .model import Model, RealVariable, Bound, Constraint

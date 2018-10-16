@@ -1,54 +1,42 @@
 import functools
+from functools import partial
 
 import numpy as np
 import scipy.optimize
 import tensorflow as tf
 
-from .utils import ReprMixin
+
+def run_expression(expression, variable_values):
+    with tf.Session() as sess:
+        for variable, value in variable_values.items():
+            sess.run(variable.assign(value))
+        if hasattr(expression, 'eval'):
+            output = expression.eval()
+        else:
+            output = sess.run(expression)
+    return output
 
 
-tf.enable_eager_execution()
-
-tfe = tf.contrib.eager # shorthand for some symbols
-
-
-class Variable(tfe.Variable):
-    def sum(self):
-        return tf.reduce_sum(self)
+# arithmetic on `Variable`s should return an "expression" - something
+# that we can run with `run_expression` and get updated values.
+class Variable(tf.Variable):
+    pass
 
 
-class Constraint(ReprMixin):
-    def __init__(self, fn, less_equal=None, greater_equal=None):
-        self.fn = fn.__name__
-        if less_equal is not None:
-            self.less_equal = less_equal
-            def c():
-                return less_equal - fn()
-        elif greater_equal is not None:
-            self.greater_equal = greater_equal
-            def c():
-                return fn() - greater_equal
-
-        self._constraint = c
-
-    def __call__(self):
-        return self._constraint()
-
-
-def _scipy_adapter(f, model):
+def _scipy_adapter(expression, variables):
     def wrapper(x):
-        model.update_vars(x)
-        return f()
+        variable_values = {var: val for var, val in zip(variables, x)}
+        return run_expression(expression, variable_values=variable_values)
     return wrapper
 
 
-def minimize(model, objective_fn, variables, constraints):
-    result = _minimize(model, objective_fn, variables, constraints)
-    result['objective_value'] = objective_fn().numpy()
-    return result
+def minimize(objective, variables, constraints):
+    solution = _minimize(objective, variables, constraints)
+    objective_value = run_expression(objective, solution)
+    return {'solution': solution, 'objective_value': objective_value}
 
 
-def maximize(model, objective_fn, variables, constraints):
+def maximize(objective, variables, constraints):
     """Maximize the objective function.
 
     Args:
@@ -66,19 +54,20 @@ def maximize(model, objective_fn, variables, constraints):
             the corresponding variable in the array and the last corresponding
             to the right hand side of the equation.
     """
-    result = _minimize(model, _negate(objective_fn), variables, constraints)
-    result['objective_value'] = objective_fn().numpy()
-    return result
+    solution = _minimize(-1 * objective, variables, constraints)
+    objective_value = run_expression(objective, solution)
+    return {'solution': {var.name: val for var, val in solution.items()},
+            'objective_value': objective_value}
 
 
-def _minimize(model, objective_fn, variables, constraints):
+def _minimize(objective, variables, constraints):
     l_bounds, u_bounds = _make_bounds(variables)
     tmp_result = scipy.optimize.minimize(
-        _scipy_adapter(objective_fn, model=model),
+        _scipy_adapter(objective, variables=variables),
         x0=l_bounds,
-        jac=_scipy_adapter(lambda: _gradient(objective_fn, wrt=variables), model=model),
+        jac=_scipy_adapter(_gradient(objective, wrt=variables), variables=variables),
         bounds=scipy.optimize.Bounds(l_bounds, u_bounds),
-        constraints=_make_constraints(model, variables, constraints),
+        constraints=_make_constraints(variables, constraints),
         method='SLSQP')
     result = {var: x for var, x in zip(variables, tmp_result.x)}
     return result
@@ -92,24 +81,19 @@ def _make_bounds(variables):
     return np.array(lower_bounds), np.array(upper_bounds)
 
 
-def _make_constraints(model, variables, constraints):
-    return [
-        dict(type='ineq', fun=_scipy_adapter(c, model=model),
-             jac=_scipy_adapter(lambda: _gradient(c, wrt=variables), model=model))
-        for c in constraints
-    ]
+def _make_constraints(variables, constraints):
+    out = []
+    for c in constraints:
+        f = _scipy_adapter(c.expression, variables=variables)
+        gradient_expression = _gradient(c.expression, wrt=variables)
+        f_gradient = _scipy_adapter(gradient_expression, variables=variables)
+        out.append(dict(type=c.type, fun=f, jac=f_gradient))
+    return out
 
 
-def _gradient(f, wrt):
-    with tf.GradientTape(persistent=True) as t:
-        t.watch(wrt)
-        f_eval = f()
-    df = t.gradient(f_eval, wrt)
-    return np.array([grad.numpy() for grad in df])
+def _gradient(expression, wrt):
+    return tf.gradients(expression, wrt)
 
 
-def _negate(f):
-    @functools.wraps(f)
-    def wrapper(*args):
-        return -1 * f(*args)
-    return wrapper
+def dot(x, y):
+    return tf.tensordot(x, y, axes=1)
