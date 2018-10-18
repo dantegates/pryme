@@ -3,8 +3,22 @@ from functools import partial, singledispatch
 import numpy as np
 
 from . import backend
-from . import context
 from .utils import ReprMixin
+
+
+_CONTEXT = []
+
+
+def get_current_model():
+    return _CONTEXT[-1]
+
+
+def append_context(obj):
+    _CONTEXT.append(obj)
+
+
+def pop_context():
+    return _CONTEXT.pop()
 
 
 class BaseModel(ReprMixin):
@@ -15,11 +29,11 @@ class BaseModel(ReprMixin):
         self.flavor = None
 
     def __enter__(self):
-        context.append_context(self)
+        append_context(self)
         return self
 
     def __exit__(self, *exc):
-        context.pop_context()
+        pop_context()
         return False
 
     def add_variables(self, variables):
@@ -33,7 +47,7 @@ class BaseModel(ReprMixin):
         if constraint is None:
             return partial(self.add_constraint, less_equal=less_equal,
                            greater_equal=greater_equal, equal=equal)
-        elif not isinstance(constraint, constrain):
+        elif not isinstance(constraint, Constraint):
             user_experession = constraint() if callable(constraint) else constraint
             if less_equal is not None:
                 type = 'ineq'
@@ -46,7 +60,7 @@ class BaseModel(ReprMixin):
                 expression = user_experession
             else:
                 raise ValueError
-            c = constrain(expression=expression, type=type)
+            c = Constraint(expression=expression, type=type)
         else:
             c = constraint
         self.constraints.append(c)
@@ -75,7 +89,7 @@ class BaseVariable(backend.Variable):
     def __new__(cls, *args, **kwargs):
         instance = super().__new__(cls)
         try:
-            current_model = context.get_current_model()
+            current_model = get_current_model()
         except IndexError:
             pass
         else:
@@ -118,24 +132,24 @@ class RealVariable(BaseVariable):
         return lower_bound, upper_bound
 
     def __le__(self, other):
-        if isinstance(other, bound):
+        if isinstance(other, Bound):
             self.upper_bound = other.value
             return self
         return super().__le__(other)
 
     def __ge__(self, other):
-        if isinstance(other, bound):
+        if isinstance(other, Bound):
             self.lower_bound = other.value
             return self
         return super().__ge__(other)
 
 
-class bound(ReprMixin):
+class Bound(ReprMixin):
     def __init__(self, value):
         self.value = value
 
 
-class constrain(ReprMixin):
+class Constraint(ReprMixin):
     def __init__(self, expression, *, type=None):
         self.expression = expression
         self.type = type
@@ -159,20 +173,20 @@ class constrain(ReprMixin):
 
     def _register_with_current_model(self, **kwargs):
         try:
-            current_model = context.get_current_model()
+            current_model = get_current_model()
         except IndexError:
             pass
         else:
             current_model.add_constraint(self)
 
 
-def minimize(objective):
-    model = context.get_current_model()
+def argmin(objective):
+    model = get_current_model()
     model.add_objective(objective, type='minimization')
     return objective
 
 
-def maximize(objective):
-    model = context.get_current_model()
+def argmax(objective):
+    model = get_current_model()
     model.add_objective(objective, type='maximization')
     return objective
