@@ -23,7 +23,7 @@ with Model() as model:
     objective = argmax(x + y - 50)
     
 model.solve()
-    
+```
 ```
 {'objective_value': 1.25,
  'solution': {<tf.Variable 'x_2:0' shape=() dtype=float32_ref>: 45.0,
