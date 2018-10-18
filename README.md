@@ -8,19 +8,19 @@ We also consider the design as an example of user driven development. Ideally we
 our models fluently as follows
 
 ```python
-from pryme import Model, RealVariable, constrain, maximize, bound
+from pryme import Model, RealVariable, Constraint, argmax, Bound
 
 
 with Model() as model:
-    x = RealVariable('x')
-    y = RealVariable('y', lower_bound=5, upper_bound=20)
+    x = RealVariable('x', lower_bound=45)
+    y = RealVariable('y')
     
-    x >= bound(45)
+    Bound(5) <= y <= Bound(20)
 
-    constrain(50*x + 24*y) <= 2400
-    constrain(30*x + 33*y) <= 2100
+    Constraint(50*x + 24*y) <= 2400
+    Constraint(30*x + 33*y) <= 2100
 
-    objective = maximize(x + y - 50)
+    objective = argmax(x + y - 50)
     
 model.solve()
     
@@ -90,7 +90,7 @@ with Model() as model:
     def c2():
         return pryme.backend.dot(x, c2_coefs)
 
-    objective = maximize(pryme.backend.dot(x, objective_coefs) - 50)
+    objective = argmax(pryme.backend.dot(x, objective_coefs) - 50)
     
 model.solve()
 ```
@@ -112,9 +112,9 @@ with Model() as model:
     h = RealVariable('h', lower_bound=0)
     s = RealVariable('s', lower_bound=0)
     
-    constrain(20*h + 170*s) == 20_000
+    Constraint(20*h + 170*s) == 20_000
     
-    objective = maximize(200*h**(2/3) * s**(1/3))
+    objective = argmax(200*h**(2/3) * s**(1/3))
     
 model.solve(x0=np.array([h0, s0]), gradient=gradient)
 ```

@@ -42,7 +42,7 @@ def _map_x_to_variable_indices(variables):
     return variable_indices
 
 
-def _scipy_adapter(expression, variables, name=None):
+def _scipy_adapter(expression, variables):
     variable_indices = _map_x_to_variable_indices(variables)
     def wrapper(x):
         variable_values = {var: x[idx] for var, idx in variable_indices}
@@ -85,9 +85,9 @@ def _minimize(objective, variables, constraints, x0=None, gradient=None, **kwarg
     l_bounds, u_bounds = _make_bounds(variables)
     gradient = _gradient if gradient is None else gradient
     result = scipy.optimize.minimize(
-        _scipy_adapter(objective, variables=variables, name='objective'),
+        _scipy_adapter(objective, variables=variables),
         x0=l_bounds if x0 is None else x0,
-        jac=_scipy_adapter(gradient(objective, wrt=variables), variables=variables, name='objective grad'),
+        jac=_scipy_adapter(gradient(objective, wrt=variables), variables=variables),
         bounds=scipy.optimize.Bounds(l_bounds, u_bounds),
         constraints=_make_constraints(variables, constraints, gradient),
         method='SLSQP',
@@ -114,9 +114,9 @@ def _make_bounds(variables):
 def _make_constraints(variables, constraints, gradient):
     out = []
     for c in constraints:
-        f = _scipy_adapter(c.expression, variables=variables, name='constraint')
+        f = _scipy_adapter(c.expression, variables=variables)
         gradient_expression = gradient(c.expression, wrt=variables)
-        f_gradient = _scipy_adapter(gradient_expression, variables=variables, name='constraint_grad')
+        f_gradient = _scipy_adapter(gradient_expression, variables=variables)
         out.append(dict(type=c.type, fun=f, jac=f_gradient))
     return out
 

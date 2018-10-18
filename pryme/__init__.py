@@ -1,11 +1,11 @@
-from .model import Model, RealVariable, bound, constrain, maximize, minimize
+from .model import Bound, Constraint, Model, RealVariable, argmax, argmin
 
 __all__ = [
     'Bound',
     'Model',
     'RealVariable',
-    'bound',
-    'constrain',
-    'maximize',
-    'minimize',
+    'Bound',
+    'Constraint',
+    'argmax',
+    'argmin',
 ]
